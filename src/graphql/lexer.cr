@@ -38,13 +38,15 @@ class GraphQL::Lexer
     body[first..last]?
   end
 
-  def advance
+  def advance : Token
     token = @last_token = @token
     if token.kind != EOF
       while token.kind === COMMENT
-        token = @token.next
+        token = @token.next = read_token
       end
+      @token = token
     end
+    token
   end
 
   # Gets the next token from the source starting at the given position.
@@ -63,11 +65,11 @@ class GraphQL::Lexer
       raise SyntaxError.new "Cannot contain the invalid character #{char}."
     end
 
-    return next_char(SPREAD) if slice(position, position + 2) == "..."
+    return tokenize(SPREAD) if slice(position, position + 2) == "..."
 
     case char
     when '!', '$', '(', ')', ':', '=', '@', '[', ']', '{', '}', '|'
-      next_char(char)
+      tokenize(char)
     when '#'
       read_comment(position, col)
     when 'A'..'z', '_'
@@ -81,11 +83,11 @@ class GraphQL::Lexer
     end
   end
 
-  private def next_char(char : Char) : Token
-    next_char :"#{char}"
+  private def tokenize(char : Char) : Token
+    tokenize :"#{char}"
   end
 
-  private def next_char(kind : Symbol) : Token
+  private def tokenize(kind : Symbol) : Token
     Token.new(kind, position, position + 1, @line, col, @last_token)
   end
 
