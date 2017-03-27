@@ -41,12 +41,17 @@ class GraphQL::Lexer
   def advance : Token
     token = @last_token = @token
     if token.kind != EOF
-      while token.kind === COMMENT
-        token = @token.next = read_token
+      token = next_token
+      while (token.kind == COMMENT)
+        token = next_token
       end
-      @token = token
+      @token = skip_comments token
     end
     token
+  end
+
+  private def next_token
+    @token.next = read_token
   end
 
   # Gets the next token from the source starting at the given position.
