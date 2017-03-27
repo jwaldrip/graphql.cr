@@ -1,7 +1,6 @@
 require "./errors"
 require "./source"
-require "./ast/*"
-require "./token"
+require "./ast/token"
 
 def Char.new(code : Int32)
   String.new(Bytes.new(1, code.to_u8))
@@ -18,14 +17,14 @@ end
 # EOF, after which the lexer will repeatedly return the same EOF token
 # whenever called.
 class GraphQL::Lexer
-  include Token::Kinds
+  include AST::Token::Kinds
 
-  @last_token : Token?
+  @last_token : AST::Token?
 
   delegate body, to: @source
 
   def initialize(@source : Source)
-    @token = Token::START_OF_FILE
+    @token = AST::Token::START_OF_FILE
     @line = 1
     @line_start = 0
   end
@@ -38,7 +37,7 @@ class GraphQL::Lexer
     body[first..last]?
   end
 
-  def advance : Token
+  def advance : AST::Token
     token = @last_token = @token
     if token.kind != EOF
       token = next_token
@@ -58,11 +57,11 @@ class GraphQL::Lexer
   # This skips over whitespace and comments until it finds the next lexable
   # token, then lexes punctuators immediately or calls the appropriate helper
   # function for more complicated tokens.
-  private def read_token : Token
+  private def read_token : AST::Token
     position = position_after_whitespace
     col = 1 + position - @line_start
 
-    return Token.new(EOF, body.length, body.length, @line, col, @last_token) if position >= body.length
+    return AST::Token.new(EOF, body.length, body.length, @line, col, @last_token) if position >= body.length
 
     char = char_at position
 
@@ -70,11 +69,11 @@ class GraphQL::Lexer
       raise SyntaxError.new "Cannot contain the invalid character #{char}."
     end
 
-    return tokenize(SPREAD) if slice(position, position + 2) == "..."
+    return tokenize(SPREAD, col) if slice(position, position + 2) == "..."
 
     case char
     when '!', '$', '(', ')', ':', '=', '@', '[', ']', '{', '}', '|'
-      tokenize(char)
+      tokenize(char, col)
     when '#'
       read_comment(position, col)
     when 'A'..'z', '_'
@@ -88,27 +87,27 @@ class GraphQL::Lexer
     end
   end
 
-  private def tokenize(char : Char) : Token
-    tokenize :"#{char}"
+  private def tokenize(char : Char, col : Int32) : AST::Token
+    tokenize :"#{char}", col
   end
 
-  private def tokenize(kind : Symbol) : Token
-    Token.new(kind, position, position + 1, @line, col, @last_token)
+  private def tokenize(kind : Symbol, col : Int32) : AST::Token
+    AST::Token.new(kind, position, position + 1, @line, col, @last_token)
   end
 
   # Reads a comment token from the source file.
   # Format: #[\u0009\u0020-\uFFFF]*
-  private def read_comment(start : Int32, col : Int32) : Token
+  private def read_comment(start : Int32, col : Int32) : AST::Token
     position = start
     while (char = char_at position) && (char != '\u{1F}' && char != '\u{9}')
       position += 1
     end
-    Token.new(COMMENT, start, position, line, col, @last_token, slice(start, position))
+    AST::Token.new(COMMENT, start, position, line, col, @last_token, slice(start, position))
   end
 
   # Reads an alphanumeric + underscore name from the source.
   # Format: [_A-Za-z][_0-9A-Za-z]*
-  private def read_name(position, col) : Token
+  private def read_name(position, col) : AST::Token
     end_position = position + 1
     while end_position != body.length &&
           (char = char_at position) &&
@@ -120,7 +119,7 @@ class GraphQL::Lexer
           )
       end_position += 1
     end
-    Token.new(NAME, position, end_position, @line, col, @last_token, slice(position, end_position))
+    AST::Token.new(NAME, position, end_position, @line, col, @last_token, slice(position, end_position))
   end
 
   # Reads a number token from the source file, either a float
@@ -129,7 +128,7 @@ class GraphQL::Lexer
   # Formats:
   # Int:   -?(0|[1-9][0-9]*)
   # Float: -?(0|[1-9][0-9]*)(\.[0-9]+)?((E|e)(+|-)?[0-9]+)?
-  private def read_number(start : Int32, first_char : Char, col : Int32) : Token
+  private def read_number(start : Int32, first_char : Char, col : Int32) : AST::Token
     kind = INT
     char = first_char
     position = start
@@ -153,7 +152,7 @@ class GraphQL::Lexer
       position = read_digits(position, char)
     end
 
-    Token.new(kind, start, position, @line, col, @last_token, slice(start, position))
+    AST::Token.new(kind, start, position, @line, col, @last_token, slice(start, position))
   end
 
   # Returns the new position in the source after reading digits.
@@ -178,7 +177,7 @@ class GraphQL::Lexer
 
   # Reads a string token from the source file.
   # Format: "([^"\\\u000A\u000D]|(\\(u[0-9a-fA-F]{4}|["\\/bfnrt])))*"
-  private def read_string(start, col) : Token
+  private def read_string(start, col) : AST::Token
     position = start + 1
     chunk_start = position
     value = String.build do |io|
@@ -217,7 +216,7 @@ class GraphQL::Lexer
       io << slice(chunk_start, position)
     end
 
-    Token.new(STRING, start, position + 1, @line, col, @last_token, value)
+    AST::Token.new(STRING, start, position + 1, @line, col, @last_token, value)
   end
 
   # Reads from body starting at startPosition until it finds a non-whitespace
